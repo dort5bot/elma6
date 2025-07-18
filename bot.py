@@ -5,9 +5,7 @@ import requests
 import time as time_module
 from datetime import datetime, timedelta, time
 from dotenv import load_dotenv
-from telegram import (
-    Update, ReplyKeyboardMarkup
-)
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     ContextTypes, filters
@@ -37,10 +35,8 @@ def get_price(symbol: str):
     try:
         res = requests.get(url, timeout=10)
         res.raise_for_status()
-        data = res.json()
-        return float(data.get("price", 0))
-    except Exception as e:
-        print(f"[get_price] HATA {symbol}: {e}")
+        return float(res.json().get("price", 0))
+    except:
         return None
 
 def format_price(price: float):
@@ -48,6 +44,15 @@ def format_price(price: float):
         return "❌"
     return f"{price:.8f}$" if price < 1 else f"{price:.2f}$"
 
+def save_csv(filename, row, headers=None):
+    file_exists = os.path.exists(filename)
+    with open(filename, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if not file_exists and headers:
+            writer.writerow(headers)
+        writer.writerow(row)
+
+# =============== AP FONKSİYONLARI ===============
 def get_ap_scores():
     try:
         url = "https://api.binance.com/api/v3/ticker/24hr"
@@ -71,22 +76,8 @@ def get_ap_scores():
             return max(0, min(100, (avg + 10) * 5))
 
         return normalize(alt_btc_strength), normalize(alt_usdt_strength), normalize(long_term_strength)
-    except Exception as e:
-        print(f"[AP] HATA: {e}")
+    except:
         return 0, 0, 0
-
-def save_csv(filename, row):
-    file_exists = os.path.exists(filename)
-    with open(filename, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            if "ap" in filename:
-                writer.writerow(["Timestamp", "BTC", "USDT", "LONG"])
-            elif "alarm" in filename:
-                writer.writerow(["Timestamp", "Datetime", "Commands", "Repeat"])
-            else:
-                writer.writerow(["Timestamp", "List", "Coin", "Price"])
-        writer.writerow(row)
 
 def get_previous_ap():
     if not os.path.exists(ap_csv):
@@ -98,11 +89,7 @@ def get_previous_ap():
         last = rows[-1]
         return float(last[1]), float(last[2]), float(last[3])
 
-def get_keyboard():
-    keys = [["AP", "IO"], ["P BTC BNB"], ["F1", "F2", "F3"]]
-    return ReplyKeyboardMarkup(keys, resize_keyboard=True)
-
-# =============== IO (PUBLIC API) ===============
+# =============== IO FONKSİYONLARI ===============
 def get_io(symbol, interval="15m", limit=50):
     try:
         url = f"https://api.binance.com/api/v3/klines?symbol={symbol.upper()}&interval={interval}&limit={limit}"
@@ -115,30 +102,30 @@ def get_io(symbol, interval="15m", limit=50):
             else:
                 s += v
         return round((b / (b + s) * 100), 2) if b + s > 0 else 0
-    except Exception as e:
-        print(f"[get_io] HATA {symbol}: {e}")
+    except:
         return 0
 
 # =============== KOMUTLAR ===============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "✅ Bot çalışıyor.\n"
-        "Komutlar:\n"
-        "/ap - Alt/BTC, Kısa Vade ve Uzun Vade puanları\n"
-        "/p COIN1 COIN2 ... - Fiyat sorgusu\n"
-        "/f1, /f2, /f3 - Hazır coin listeleri\n"
-        "/io [coin] - IO raporu (15m,1h,4h,1d)\n"
-        "/alarm - Alarm kur\n"
-        "/alarmlist, /delalarm <id>\n"
+        "✅ Bot Çalışıyor\n"
+        "/ap - AP puanları\n"
+        "/p COIN1 COIN2 - Fiyat\n"
+        "/io [coin] - IO raporu\n"
+        "/f1, /f2, /f3 - Hazır listeler\n"
+        "/alarm <tarih-saat> <komut> - Alarm ekle\n"
+        "/alarmlist - Alarm listesi\n"
+        "/delalarm <id> - Alarm sil\n"
         "/cleancsv all|ap|p|alarms - CSV temizle",
-        reply_markup=get_keyboard()
+        reply_markup=ReplyKeyboardMarkup([["AP", "IO"], ["P BTC"], ["F1", "F2", "F3"]], resize_keyboard=True)
     )
 
 async def ap_command(update: Update, context: ContextTypes.DEFAULT_TYPE, auto=False):
     prev_btc, prev_usdt, prev_long = get_previous_ap()
     btc, usdt, long = get_ap_scores()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    save_csv(ap_csv, [timestamp, f"{btc:.2f}", f"{usdt:.2f}", f"{long:.2f}"])
+    save_csv(ap_csv, [timestamp, f"{btc:.2f}", f"{usdt:.2f}", f"{long:.2f}"],
+             ["Timestamp", "BTC", "USDT", "LONG"])
 
     def change_text(current, previous):
         if previous is None:
@@ -147,24 +134,22 @@ async def ap_command(update: Update, context: ContextTypes.DEFAULT_TYPE, auto=Fa
         arrow = "🟢" if diff > 0 else "🔴"
         return f" {arrow} {diff:+.2f}"
 
-    text = f"""
-📊 *AP Raporu*
-- Altların BTC'ye karşı: {btc:.1f}/100{change_text(btc, prev_btc)}
-- Alt Kısa Vade: {usdt:.1f}/100{change_text(usdt, prev_usdt)}
-- Coinlerin Uzun Vade: {long:.1f}/100{change_text(long, prev_long)}
-"""
+    text = (
+        f"📊 *AP Raporu*\n"
+        f"- Alt/BTC: {btc:.1f}/100{change_text(btc, prev_btc)}\n"
+        f"- Alt/USDT: {usdt:.1f}/100{change_text(usdt, prev_usdt)}\n"
+        f"- Uzun Vade: {long:.1f}/100{change_text(long, prev_long)}"
+    )
     if auto:
         await context.bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="Markdown")
     else:
         await update.message.reply_text(text, parse_mode="Markdown")
 
 async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip().upper()
-    coins = [c.upper() for c in text.split()[1:]]
+    coins = [c.upper() for c in update.message.text.split()[1:]]
     if not coins:
         await update.message.reply_text("❌ Kullanım: /p BTC BNB ETH ...")
         return
-
     results = []
     for coin in coins:
         price = get_price(coin)
@@ -172,15 +157,16 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(results))
 
 async def f_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip().upper()
-    if text not in f_lists:
+    list_name = update.message.text.strip().upper()
+    if list_name not in f_lists:
         return
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    results = [f"💹 *{text} Fiyatları:*"]
-    for coin in f_lists[text]:
+    results = [f"💹 *{list_name} Fiyatları:*"]
+    for coin in f_lists[list_name]:
         price = get_price(coin)
         results.append(f"- {coin}: {format_price(price)}")
-        save_csv(p_csv, [timestamp, text, coin, f"{price if price else 0:.6f}"])
+        save_csv(p_csv, [timestamp, list_name, coin, f"{price if price else 0:.6f}"],
+                 ["Timestamp", "List", "Coin", "Price"])
     await update.message.reply_text("\n".join(results), parse_mode="Markdown")
 
 async def io_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -194,77 +180,97 @@ async def io_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown")
 
 # =============== ALARM & TEMİZLİK ===============
-# ... (BURAYA senin alarm ve cleanup kodların tam hali aynı şekilde kalacak)
-# =============== TEMİZLİK İŞLEMLERİ ===============
-def cleanup_csv_file(filename, days=30, max_lines=10000):
-    if not os.path.exists(filename):
+async def alarm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("❌ Kullanım: /alarm 2025-07-19_15:30 /ap")
         return
-    with open(filename, "r", encoding="utf-8") as f:
-        rows = list(csv.reader(f))
-    if len(rows) <= 1:
-        return
-    header, data = rows[0], rows[1:]
-    filtered = []
-    now = datetime.now()
-    for row in data:
-        try:
-            row_time = datetime.strptime(row[0], "%Y-%m-%d %H:%M")
-            if now - row_time <= timedelta(days=days):
-                filtered.append(row)
-        except:
-            filtered.append(row)
-    if len(filtered) > max_lines:
-        filtered = filtered[-max_lines:]
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(header)
-        writer.writerows(filtered)
+    date_str, command = context.args[0], " ".join(context.args[1:])
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d_%H:%M")
+        save_csv(alarms_csv, [datetime.now().strftime("%Y-%m-%d %H:%M"), dt, command, "no"],
+                 ["Timestamp", "Datetime", "Commands", "Repeat"])
+        context.job_queue.run_once(run_alarm, dt, chat_id=update.effective_chat.id, name=str(dt),
+                                   data={"command": command})
+        await update.message.reply_text(f"✅ Alarm eklendi: {dt} → {command}")
+    except:
+        await update.message.reply_text("❌ Tarih formatı hatalı. Örn: 2025-07-19_15:30")
 
-async def auto_cleanup(context: ContextTypes.DEFAULT_TYPE):
-    for file in [ap_csv, p_csv, alarms_csv]:
-        cleanup_csv_file(file)
-    await context.bot.send_message(chat_id=CHAT_ID, text="✅ Otomatik temizlik tamamlandı.")
+async def run_alarm(context: ContextTypes.DEFAULT_TYPE):
+    cmd = context.job.data["command"]
+    if "/ap" in cmd:
+        await ap_command(None, context, auto=True)
+    else:
+        await context.bot.send_message(chat_id=CHAT_ID, text=f"🔔 Alarm: {cmd}")
+
+async def alarmlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not os.path.exists(alarms_csv):
+        await update.message.reply_text("🔕 Alarm yok")
+        return
+    with open(alarms_csv, "r", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+        if len(rows) < 2:
+            await update.message.reply_text("🔕 Alarm yok")
+            return
+        text = "⏰ *Alarm Listesi:*\n"
+        for i, r in enumerate(rows[1:], start=1):
+            text += f"{i}) {r[1]} → {r[2]}\n"
+        await update.message.reply_text(text, parse_mode="Markdown")
+
+async def delalarm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        await update.message.reply_text("❌ Kullanım: /delalarm 1")
+        return
+    idx = int(context.args[0])
+    if not os.path.exists(alarms_csv):
+        await update.message.reply_text("🔕 Alarm yok")
+        return
+    with open(alarms_csv, "r", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    if idx >= len(rows):
+        await update.message.reply_text("❌ Alarm bulunamadı")
+        return
+    del rows[idx]
+    with open(alarms_csv, "w", newline="", encoding="utf-8") as f:
+        csv.writer(f).writerows(rows)
+    await update.message.reply_text("✅ Alarm silindi")
 
 async def cleancsv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = update.message.text.split()
-    target = args[1].lower() if len(args) > 1 else "all"
-    files = {
-        "ap": ap_csv,
-        "p": p_csv,
-        "alarms": alarms_csv
-    }
-    if target == "all":
+    if not context.args:
+        await update.message.reply_text("❌ Kullanım: /cleancsv all|ap|p|alarms")
+        return
+    t = context.args[0]
+    files = {"ap": ap_csv, "p": p_csv, "alarms": alarms_csv}
+    if t == "all":
         for f in files.values():
-            cleanup_csv_file(f, days=0, max_lines=0)
-        await update.message.reply_text("✅ Tüm CSV dosyaları temizlendi.")
-    elif target in files:
-        cleanup_csv_file(files[target], days=0, max_lines=0)
-        await update.message.reply_text(f"✅ {target} CSV dosyası temizlendi.")
+            if os.path.exists(f): os.remove(f)
+        await update.message.reply_text("✅ Tüm CSV'ler temizlendi")
+    elif t in files:
+        if os.path.exists(files[t]): os.remove(files[t])
+        await update.message.reply_text(f"✅ {t} CSV temizlendi")
     else:
-        await update.message.reply_text("❌ Geçersiz parametre. Kullanım: /cleancsv all|ap|p|alarms")
+        await update.message.reply_text("❌ Geçersiz seçenek")
 
-# =============== KEEP-ALIVE ===============
 # =============== KEEP-ALIVE ===============
 def keep_alive():
     if not KEEP_ALIVE_URL:
-        print("KEEP_ALIVE_URL ayarlanmamış.")
         return
     while True:
         try:
             requests.get(KEEP_ALIVE_URL, timeout=5)
-            print(f"[KEEP-ALIVE] Ping gönderildi → {KEEP_ALIVE_URL}")
         except:
             pass
-        time_module.sleep(60 * 5)
+        time_module.sleep(300)
 
 # =============== ANA FONKSİYON ===============
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ap", ap_command))
     app.add_handler(CommandHandler("p", price_command))
     app.add_handler(CommandHandler("io", io_command))
+    app.add_handler(CommandHandler("f1", f_list))
+    app.add_handler(CommandHandler("f2", f_list))
+    app.add_handler(CommandHandler("f3", f_list))
     app.add_handler(CommandHandler("alarm", alarm_command))
     app.add_handler(CommandHandler("alarmlist", alarmlist))
     app.add_handler(CommandHandler("delalarm", delalarm))
@@ -274,16 +280,11 @@ def main():
     app.add_handler(MessageHandler(filters.Regex("^(IO|io)\\s*"), io_command))
     app.add_handler(MessageHandler(filters.Regex("^F[0-9]+$"), f_list))
 
-    app.job_queue.run_daily(auto_cleanup, time=time(hour=3, minute=0))
-
+    app.job_queue.run_daily(lambda ctx: ap_command(None, ctx, auto=True), time=time(hour=3, minute=0))
     threading.Thread(target=keep_alive, daemon=True).start()
-    print("Bot Webhook ile çalışıyor...")
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path="",
-        webhook_url=KEEP_ALIVE_URL
-    )
+
+    print("Birleşik Bot Çalışıyor...")
+    app.run_webhook(listen="0.0.0.0", port=PORT, url_path="", webhook_url=KEEP_ALIVE_URL)
 
 if __name__ == "__main__":
     main()
