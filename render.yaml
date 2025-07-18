@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: elma5-io-bot          # Bot ismi (Render panelinde gözükecek, değiştirebilirsin)
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python elma5_io_bot.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false             # Render ortam değişkenlerinden girilecek
+      - key: CHAT_ID
+        sync: false
+      - key: PORT
+        value: 10000
+      - key: KEEP_ALIVE_URL
+        value: https://elma5-io-bot.onrender.com  # Render oluşturduktan sonra güncelle
